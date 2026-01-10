@@ -1,0 +1,93 @@
+# =========================================================
+# NOSIS — Enterprise CODEOWNERS (2026)
+# Purpose: Enforce ownership, quality, and security gates
+# =========================================================
+
+# ---------------------------------------------------------
+# Global default owners
+# ---------------------------------------------------------
+*                       @nosis/core-platform-leads
+
+# ---------------------------------------------------------
+# API & Backend
+# ---------------------------------------------------------
+/api/                   @nosis/backend-leads
+/core/api/              @nosis/backend-leads
+/services/api/          @nosis/backend-leads
+
+# ---------------------------------------------------------
+# AI / ML — Models, Training, Inference
+# ---------------------------------------------------------
+/models/                @nosis/ml-leads
+/training/              @nosis/ml-leads
+/inference/             @nosis/ml-leads
+/experiments/           @nosis/ml-research
+/data/                  @nosis/data-owners
+
+# ---------------------------------------------------------
+# Audio, Music & Voice Processing
+# ---------------------------------------------------------
+/audio/                 @nosis/audio-leads
+/voice/                 @nosis/audio-leads
+/dsp/                   @nosis/audio-leads
+
+# ---------------------------------------------------------
+# MLOps & Model Serving
+# ---------------------------------------------------------
+/mlops/                 @nosis/mlops-leads
+/serving/               @nosis/mlops-leads
+/model-registry/        @nosis/mlops-leads
+
+# ---------------------------------------------------------
+# Infrastructure & Platform
+# ---------------------------------------------------------
+/infra/                 @nosis/platform-leads
+/docker/                @nosis/platform-leads
+/helm/                  @nosis/platform-leads
+/k8s/                   @nosis/platform-leads
+/terraform/             @nosis/platform-leads
+
+# ---------------------------------------------------------
+# CI / CD & GitHub Automation
+# ---------------------------------------------------------
+/.github/               @nosis/devops-leads
+/.github/workflows/     @nosis/devops-leads
+
+# ---------------------------------------------------------
+# Security & Compliance
+# ---------------------------------------------------------
+/security/              @nosis/security-leads
+/iam/                   @nosis/security-leads
+/secrets/               @nosis/security-leads
+
+# ---------------------------------------------------------
+# Observability & Monitoring
+# ---------------------------------------------------------
+/monitoring/            @nosis/sre-leads
+/observability/         @nosis/sre-leads
+/logging/               @nosis/sre-leads
+
+# ---------------------------------------------------------
+# Documentation & Governance
+# ---------------------------------------------------------
+/docs/                  @nosis/docs-leads
+/README.md              @nosis/docs-leads
+/CONTRIBUTING.md        @nosis/docs-leads
+/SECURITY.md            @nosis/security-leads
+
+# ---------------------------------------------------------
+# Configuration & Environment
+# ---------------------------------------------------------
+/config/                @nosis/platform-leads
+/.env.example           @nosis/platform-leads
+
+# ---------------------------------------------------------
+# Tests
+# ---------------------------------------------------------
+/tests/                 @nosis/qa-leads
+
+# ---------------------------------------------------------
+# Critical files (require senior approval)
+# ---------------------------------------------------------
+/CODEOWNERS             @nosis/core-platform-leads
+/PULL_REQUEST_TEMPLATE.md @nosis/core-platform-leads
