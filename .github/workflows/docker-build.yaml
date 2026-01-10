@@ -1,0 +1,148 @@
+name: NOSIS Docker Build & Publish
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - "Dockerfile"
+      - "docker/**"
+      - "core/**"
+      - "services/**"
+      - "requirements/**"
+
+  workflow_dispatch:
+    inputs:
+      image_target:
+        description: "Which image to build (api | training | inference)"
+        required: true
+        default: "api"
+      push_image:
+        description: "Push image to registry"
+        required: true
+        default: "true"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  PROJECT_NAME: nosis
+  PYTHON_VERSION: "3.11"
+  DOCKER_BUILDKIT: "1"
+
+jobs:
+  #########################################################
+  # JOB 1 — METADATA & VERSIONING
+  #########################################################
+  metadata:
+    name: Generate image metadata
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      image_name: ${{ steps.meta.outputs.image }}
+
+    steps:
+      - name: Generate semantic tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)
+          TAG="$(date +%Y.%m.%d)-${SHORT_SHA}"
+          IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/${PROJECT_NAME}-${{ inputs.image_target }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+
+  #########################################################
+  # JOB 2 — DOCKER BUILD (MULTI-STAGE, CACHED)
+  #########################################################
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: metadata
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image (with cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.${{ inputs.image_target }}
+          push: false
+          tags: |
+            ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.image_tag }}
+            ${{ needs.metadata.outputs.image }}:latest
+          cache-from: type=registry,ref=${{ needs.metadata.outputs.image }}:buildcache
+          cache-to: type=registry,ref=${{ needs.metadata.outputs.image }}:buildcache,mode=max
+          build-args: |
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            IMAGE_TARGET=${{ inputs.image_target }}
+
+  #########################################################
+  # JOB 3 — SECURITY & SBOM SCAN
+  #########################################################
+  scan:
+    name: Security & SBOM scan
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.image_tag }}
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.image_tag }}
+          format: cyclonedx-json
+          output-file: sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+  #########################################################
+  # JOB 4 — PUSH IMAGE (CONTROLLED)
+  #########################################################
+  publish:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+    needs: scan
+    if: inputs.push_image == 'true'
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        run: |
+          docker push ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.image_tag }}
+          docker push ${{ needs.metadata.outputs.image }}:latest

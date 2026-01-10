@@ -1,0 +1,171 @@
+name: NOSIS Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy to production"
+        required: true
+      rollout_strategy:
+        description: "Deployment strategy (bluegreen | canary)"
+        required: true
+        default: "bluegreen"
+      approve_change:
+        description: "Manual approval confirmation (must be 'yes')"
+        required: true
+        default: "no"
+
+env:
+  REGISTRY: ghcr.io
+  PROJECT_NAME: nosis
+  NAMESPACE: production
+  KUBE_CONTEXT: production
+  HELM_RELEASE: nosis-api
+  HEALTHCHECK_URL: "https://api.nosis.ai/health"
+  PROMETHEUS_URL: "https://prometheus.prod.nosis.ai"
+  ERROR_RATE_THRESHOLD: "1.0"
+  LATENCY_P95_THRESHOLD: "800"
+
+jobs:
+  #########################################################
+  # JOB 1 — PRE-PRODUCTION SAFETY GATE
+  #########################################################
+  safety_gate:
+    name: Production safety gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate approval
+        run: |
+          if [[ "${{ inputs.approve_change }}" != "yes" ]]; then
+            echo "Manual approval missing. Set approve_change=yes"
+            exit 1
+          fi
+
+      - name: Validate rollout strategy
+        run: |
+          if [[ "${{ inputs.rollout_strategy }}" != "bluegreen" && "${{ inputs.rollout_strategy }}" != "canary" ]]; then
+            echo "Invalid rollout strategy"
+            exit 1
+          fi
+
+      - name: Validate image tag
+        run: |
+          if [[ -z "${{ inputs.image_tag }}" ]]; then
+            echo "Image tag is required"
+            exit 1
+          fi
+
+  #########################################################
+  # JOB 2 — DEPLOY TO PRODUCTION
+  #########################################################
+  deploy:
+    name: Deploy to Kubernetes (production)
+    runs-on: ubuntu-latest
+    needs: safety_gate
+    environment:
+      name: production
+      url: https://api.nosis.ai
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.0"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+          kubectl config use-context ${{ env.KUBE_CONTEXT }}
+
+      - name: Blue-Green deploy
+        if: inputs.rollout_strategy == 'bluegreen'
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }} ./deploy/helm \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.repository=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.PROJECT_NAME }}-api \
+            --set image.tag=${{ inputs.image_tag }} \
+            --set deployment.strategy=BlueGreen \
+            --set autoscaling.enabled=true
+
+      - name: Canary deploy
+        if: inputs.rollout_strategy == 'canary'
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }} ./deploy/helm \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.repository=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.PROJECT_NAME }}-api \
+            --set image.tag=${{ inputs.image_tag }} \
+            --set deployment.strategy=Canary \
+            --set canary.enabled=true \
+            --set canary.weight=5
+
+  #########################################################
+  # JOB 3 — POST-DEPLOY MONITORING VALIDATION
+  #########################################################
+  observe:
+    name: Production observability validation
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Wait for stabilization
+        run: sleep 60
+
+      - name: HTTP health check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.HEALTHCHECK_URL }})
+          if [[ "$STATUS" != "200" ]]; then
+            echo "Healthcheck failed"
+            exit 1
+          fi
+
+      - name: Validate error rate & latency (Prometheus)
+        run: |
+          ERROR_RATE=$(curl -s "${{ env.PROMETHEUS_URL }}/api/v1/query?query=error_rate" | jq '.data.result[0].value[1]')
+          LATENCY=$(curl -s "${{ env.PROMETHEUS_URL }}/api/v1/query?query=latency_p95" | jq '.data.result[0].value[1]')
+
+          if (( $(echo "$ERROR_RATE > $ERROR_RATE_THRESHOLD" | bc -l) )); then
+            echo "Error rate too high"
+            exit 1
+          fi
+
+          if (( $(echo "$LATENCY > $LATENCY_P95_THRESHOLD" | bc -l) )); then
+            echo "Latency too high"
+            exit 1
+          fi
+
+  #########################################################
+  # JOB 4 — AUTOMATED ROLLBACK
+  #########################################################
+  rollback:
+    name: Rollback production
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: observe
+
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+
+      - name: Rollback Helm release
+        run: |
+          helm rollback ${{ env.HELM_RELEASE }}

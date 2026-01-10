@@ -1,0 +1,152 @@
+name: NOSIS Deploy to Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy"
+        required: true
+        default: "latest"
+      rollout_strategy:
+        description: "Deployment strategy (rolling | canary)"
+        required: true
+        default: "rolling"
+
+  workflow_run:
+    workflows:
+      - "NOSIS Docker Build & Publish"
+    types:
+      - completed
+
+env:
+  REGISTRY: ghcr.io
+  PROJECT_NAME: nosis
+  NAMESPACE: staging
+  KUBE_CONTEXT: staging
+  HELM_RELEASE: nosis-api
+  HEALTHCHECK_URL: "https://staging.nosis.ai/health"
+  PROMETHEUS_URL: "https://prometheus.staging.nosis.ai"
+
+jobs:
+  #########################################################
+  # JOB 1 — PRE-DEPLOY VALIDATION
+  #########################################################
+  validate:
+    name: Validate deployment inputs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate image tag
+        run: |
+          if [[ -z "${{ inputs.image_tag }}" ]]; then
+            echo "Image tag is required"
+            exit 1
+          fi
+
+      - name: Validate rollout strategy
+        run: |
+          if [[ "${{ inputs.rollout_strategy }}" != "rolling" && "${{ inputs.rollout_strategy }}" != "canary" ]]; then
+            echo "Invalid rollout strategy"
+            exit 1
+          fi
+
+  #########################################################
+  # JOB 2 — DEPLOY TO STAGING
+  #########################################################
+  deploy:
+    name: Deploy to Kubernetes (staging)
+    runs-on: ubuntu-latest
+    needs: validate
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.0"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+          kubectl config use-context ${{ env.KUBE_CONTEXT }}
+
+      - name: Helm upgrade (rolling)
+        if: inputs.rollout_strategy == 'rolling'
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }} ./deploy/helm \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.repository=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.PROJECT_NAME }}-api \
+            --set image.tag=${{ inputs.image_tag }} \
+            --set deployment.strategy=RollingUpdate
+
+      - name: Helm upgrade (canary)
+        if: inputs.rollout_strategy == 'canary'
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }} ./deploy/helm \
+            --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
+            --set image.repository=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.PROJECT_NAME }}-api \
+            --set image.tag=${{ inputs.image_tag }} \
+            --set deployment.strategy=Canary \
+            --set canary.enabled=true \
+            --set canary.weight=10
+
+  #########################################################
+  # JOB 3 — POST-DEPLOY HEALTH CHECKS
+  #########################################################
+  healthcheck:
+    name: Post-deploy health verification
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Wait for rollout
+        run: |
+          sleep 30
+
+      - name: HTTP health check
+        run: |
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.HEALTHCHECK_URL }})
+            if [ "$STATUS" == "200" ]; then
+              echo "Service is healthy"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Healthcheck failed"
+          exit 1
+
+  #########################################################
+  # JOB 4 — AUTOMATED ROLLBACK ON FAILURE
+  #########################################################
+  rollback:
+    name: Rollback if failed
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: healthcheck
+
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+
+      - name: Rollback Helm release
+        run: |
+          helm rollback ${{ env.HELM_RELEASE }}
