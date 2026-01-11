@@ -44,9 +44,9 @@ for exe in REQUIRED_PKGS:
 
 # === Globals ===
 
-ROOT = Path(__file__).resolve().parents[1]
-COMPOSE_FILE = ROOT / "infrastructure/docker/compose/docker-compose.dev.yml"
-GUI_ENTRYPOINT = ROOT / "desktop_ui/main.py"
+ROOT = Path(__file__).resolve().parent
+COMPOSE_FILE = ROOT / "infrastructure/docker/compose/docker-compose.dev.yml"␊
+GUI_ENTRYPOINT = ROOT / "desktop_gui/main.py"
 
 # Ports and services to health-check
 SERVICES: Dict[str, Tuple[str, int]] = {
@@ -202,3 +202,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
