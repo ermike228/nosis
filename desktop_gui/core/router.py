@@ -112,10 +112,21 @@ class Router(QObject):
 
         return self._permissions.can_access_page(name)
 
-    def clear(self) -> None:
+   def clear(self) -> None:
         """
         Destroy all pages (used for logout / user switch).
         """
         self._stack.clear()
         self._pages.clear()
         self._history.clear()
+
+
+_router: Optional[Router] = None
+
+
+def get_router(parent: Optional[QWidget] = None) -> Router:
+    global _router
+    if _router is None:
+        _router = Router(parent)
+    return _router
+
