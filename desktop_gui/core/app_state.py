@@ -35,7 +35,7 @@ class UserState:
     username: Optional[str] = None
     plan: str = "free"              # free | pro | enterprise
     authenticated: bool = False
-
+    credits: Optional[int] = None
 
 @dataclass(frozen=True)
 class ProjectState:
@@ -127,6 +127,18 @@ class AppState(QObject):
     def ui_flags(self) -> UIFlags:
         return self._ui_flags
 
+    @property
+    def mode(self) -> str:
+        return self._project.mode
+
+    @property
+    def credits(self) -> Optional[int]:
+        return self._user.credits
+
+    @property
+    def backend_connected(self) -> bool:
+        return self._backend.connected
+
     # =========================================================================
     # STATE UPDATE API (IMMUTABLE, SIGNAL-DRIVEN)
     # =========================================================================
@@ -160,6 +172,15 @@ class AppState(QObject):
             self._ui_flags = UIFlags(**{**self._ui_flags.__dict__, **kwargs})
         self.ui_flags_changed.emit(self._ui_flags)
         self.state_changed.emit("ui_flags", self._ui_flags)
+
+    def set_mode(self, mode: str) -> None:
+        self.set_project(mode=mode)
+
+    def set_credits(self, credits: Optional[int]) -> None:
+        self.set_user(credits=credits)
+
+    def set_backend_connected(self, connected: bool) -> None:
+        self.set_backend(connected=connected)
 
     # =========================================================================
     # CONVENIENCE / HIGH-LEVEL ACTIONS
@@ -202,3 +223,4 @@ def get_app_state() -> AppState:
     if _app_state is None:
         _app_state = AppState()
     return _app_state
+
