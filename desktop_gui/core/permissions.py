@@ -25,7 +25,6 @@ from typing import Dict, Optional
 
 from desktop_gui.core.app_state import get_app_state
 
-
 # =============================================================================
 # PLANS
 # =============================================================================
@@ -162,6 +161,9 @@ class PermissionManager:
 
         return True
 
+    def is_route_allowed(self, route: str) -> bool:
+        return self.can_access_page(route)
+
     # ------------------------------------------------------------------
     # FEATURE ACCESS
     # ------------------------------------------------------------------
@@ -172,6 +174,14 @@ class PermissionManager:
         """
         return bool(getattr(self.limits, feature_name, False))
 
+    def can_generate(self) -> bool:
+        return self.has_credits()
+
+    def can_save_project(self) -> bool:
+        return self._state.user.authenticated
+
+    def inspector_enabled(self) -> bool:
+        return self._state.ui_flags.inspector_visible
     # ------------------------------------------------------------------
     # GENERATION LIMITS
     # ------------------------------------------------------------------
@@ -200,5 +210,15 @@ class PermissionManager:
     def can_export_stems(self) -> bool:
         return self.limits.export_stems
 
-    def is_commercial_use_allowed(self) -> bool:
+     def is_commercial_use_allowed(self) -> bool:
         return self.limits.commercial_use
+
+
+_permissions: Optional[PermissionManager] = None
+
+def get_permissions() -> PermissionManager:
+    global _permissions
+    if _permissions is None:
+        _permissions = PermissionManager()
+    return _permissions
+
