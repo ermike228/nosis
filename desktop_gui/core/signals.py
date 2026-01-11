@@ -55,6 +55,8 @@ class UISignals(QObject):
     navigate = pyqtSignal(str)              # page_name
     navigate_back = pyqtSignal()
     navigate_forward = pyqtSignal()
+    route_requested = pyqtSignal(str)
+    route_changed = pyqtSignal(str)
 
     # ------------------------------------------------------------------
     # PROJECT / WORKSPACE
@@ -64,17 +66,21 @@ class UISignals(QObject):
     project_saved = pyqtSignal(str)
     project_closed = pyqtSignal()
     project_dirty_changed = pyqtSignal(bool)
+    project_save_requested = pyqtSignal()
+    project_save_as_requested = pyqtSignal()
 
     # ------------------------------------------------------------------
     # GENERATION PIPELINE
     # ------------------------------------------------------------------
-    generation_requested = pyqtSignal(dict)     # full generation payload
+     generation_requested = pyqtSignal(dict)     # full generation payload
     generation_started = pyqtSignal()
     generation_progress = pyqtSignal(float)     # 0.0 .. 1.0
     generation_preview = pyqtSignal(dict)       # streamed / partial output
     generation_finished = pyqtSignal(dict)      # final result metadata
     generation_failed = pyqtSignal(str)
     generation_cancelled = pyqtSignal()
+    generate_requested = pyqtSignal(dict)
+    generated_item_selected = pyqtSignal(dict)
 
     # ------------------------------------------------------------------
     # BACKEND / CONNECTIVITY
@@ -92,6 +98,9 @@ class UISignals(QObject):
     track_selected = pyqtSignal(str)
     track_deleted = pyqtSignal(str)
     asset_imported = pyqtSignal(str)
+    playlist_selected = pyqtSignal(str)
+    playlist_updated = pyqtSignal(dict)
+    export_requested = pyqtSignal(dict)
 
     # ------------------------------------------------------------------
     # UI / UX STATE
@@ -101,6 +110,12 @@ class UISignals(QObject):
     inspector_toggled = pyqtSignal(bool)
     fullscreen_toggled = pyqtSignal(bool)
     notification = pyqtSignal(str, Optional[str])  # message, level
+    notification_received = pyqtSignal(dict)
+    notifications_cleared = pyqtSignal(str)
+    selection_changed = pyqtSignal(object)
+    permissions_changed = pyqtSignal(dict)
+    credits_updated = pyqtSignal(int)
+    mode_changed = pyqtSignal(str)
 
     # ------------------------------------------------------------------
     # USER / AUTH / BILLING
@@ -109,6 +124,8 @@ class UISignals(QObject):
     user_logged_out = pyqtSignal()
     subscription_changed = pyqtSignal(str)
     permissions_updated = pyqtSignal(dict)
+    subscription_updated = pyqtSignal(dict)
+    upgrade_requested = pyqtSignal(str)
 
     # ------------------------------------------------------------------
     # SETTINGS
@@ -144,3 +161,4 @@ def get_signals() -> UISignals:
     if _signals is None:
         _signals = UISignals()
     return _signals
+
